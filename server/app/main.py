@@ -2,7 +2,7 @@ from pathlib import Path
 from uuid import uuid4
 from PIL import Image
 
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -15,6 +15,8 @@ from app.image.processor import (
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 GENERATED_DIR = BASE_DIR / "generated"
+
+conversion_data = {}
 
 GENERATED_DIR.mkdir(exist_ok=True)
 
@@ -59,11 +61,9 @@ async def convert_image(
     grayscale_path = GENERATED_DIR / grayscale_filename
 
     Image.fromarray(image).save(grayscale_path)
-
     hilbert_array, path = image_to_hilbert_array(image)
 
     statistics = calculate_statistics(hilbert_array)
-    print("6. Statistics calculated")
 
     audio_filename = f"{file_id}.wav"
     audio_path = GENERATED_DIR / audio_filename
@@ -73,7 +73,19 @@ async def convert_image(
         audio_path,
     )
 
+    conversion_data[file_id] = {
+        "array": hilbert_array.tolist(),
+        "hilbert_path": [
+            {
+                "x": x,
+                "y": y,
+            }
+            for x, y in path
+        ],
+    }
+
     return {
+        "id": file_id,
         "image": {
             "width": 256,
             "height": 256,
@@ -85,3 +97,16 @@ async def convert_image(
             "audio": f"/files/{audio_filename}",
         },
     }
+
+
+@app.get("/api/convert/{file_id}/data")
+def get_conversion_data(file_id: str):
+    data = conversion_data.get(file_id)
+
+    if data is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Conversion data not found",
+        )
+
+    return data
